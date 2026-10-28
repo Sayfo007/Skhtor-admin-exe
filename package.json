@@ -1,0 +1,24 @@
+{
+  "name": "skhtor-admin-desktop",
+  "version": "1.0.0",
+  "description": "Skhtor Admin for Windows",
+  "main": "main.js",
+  "author": "Skhtor",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.skhtor.admin.desktop",
+    "productName": "Skhtor Admin",
+    "files": ["main.js", "www/**/*"],
+    "icon": "build/icon.png",
+    "win": { "target": ["portable", "nsis"] },
+    "nsis": { "oneClick": true, "perMachine": false },
+    "artifactName": "Skhtor-Admin-${version}-${target}.${ext}"
+  }
+}

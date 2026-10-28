@@ -1,3 +1,4 @@
+
 {
   "name": "skhtor-admin-desktop",
   "version": "1.0.0",
@@ -6,7 +7,7 @@
   "author": "Skhtor",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable nsis"
+    "dist": "electron-builder --win portable nsis --publish never"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -15,10 +16,24 @@
   "build": {
     "appId": "com.skhtor.admin.desktop",
     "productName": "Skhtor Admin",
-    "files": ["main.js", "www/**/*"],
+    "files": [
+      "main.js",
+      "www/**/*"
+    ],
     "icon": "build/icon.png",
-    "win": { "target": ["portable", "nsis"] },
-    "nsis": { "oneClick": true, "perMachine": false },
-    "artifactName": "Skhtor-Admin-${version}-${target}.${ext}"
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Skhtor-Admin-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Skhtor-Admin-Portable-${version}.${ext}"
+    }
   }
 }

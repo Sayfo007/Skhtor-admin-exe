@@ -74,8 +74,10 @@ input,textarea,select{width:100%;padding:13px;border:1px solid var(--line);borde
 @media (prefers-reduced-motion:reduce){.spin,.pulse2,.bar button.pulse{animation:none}}
 .oc.Cancelled{border-color:#ef4444;opacity:.6}.leaflet-container{font:inherit}#pmap{z-index:0}
 </style></head><body style="padding-bottom:0"><div id="app"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
 <script>const FBC={apiKey:"AIzaSyA-_Q8X7jWa3psD6S-z9uyNIeZexnDfYto",authDomain:"skhtor-904cc.firebaseapp.com",projectId:"skhtor-904cc",storageBucket:"skhtor-904cc.firebasestorage.app",messagingSenderId:"448107128015",appId:"1:448107128015:web:a1323941c42335c03a43ba"};
+/* Paste your Web Push key here (Firebase Console > Project settings > Cloud Messaging > Web Push certificates > Generate key pair) */
+const VAPID_KEY="BE7ypUEeLI6TbyrK1Xr5GsLhuD3NZz7lZ6JuEDW8W2GeUpUEH3CZJWUIDnH6EFAkPfN2FQ_pqRKqr6SIby_nv0E";
 const LN={en:"English",hy:"Հայերեն",ru:"Русский",ar:"العربية"};
 const T={
 en:{choose:"Choose your language",hello:"Sign in to keep your orders and addresses",email:"Gmail",phone:"Phone",name:"Your name",cont:"Continue",guest:"Continue as guest",empty:"Your cart is empty",view:"View cart",order:"Your order",Pickup:"Pickup",Delivery:"Delivery",Dine:"Dine-in",sub:"Subtotal",svc:"Table service 10%",tot:"Total",addr:"Delivery address",notes:"Notes",place:"Place order",addrs:"Saved addresses",add:"Save address",label:"Label (Home, Work)",me:"My account",out:"Sign out",lang:"Language",admin:"Admin panel",wa:"Send order via WhatsApp",done:"Done",fill:"Please fill in your name, phone and address.",none:"No saved addresses yet",bad:"Enter a valid Gmail address or phone number",saved:"Saved",loc:"Use my location"},
@@ -123,10 +125,10 @@ let pushWired=false;
 async function initPush(){
  const first=!LS.g("ad_nq"),p=PNP();
  if(first)LS.s("ad_nq",1);
- if(!p){if(first)reqNotif();return;}
+ if(!p){if(first)reqNotif();webPush();return;}
  try{
   if(!pushWired){pushWired=true;
-   p.addListener("registration",tk=>{LS.s("ad_tok",tk.value);db.doc("adminTokens/"+tk.value).set({ts:Date.now()}).catch(()=>{});});
+   p.addListener("registration",tk=>{LS.s("ad_tok",tk.value);db.doc("adminTokens/"+tk.value).set({ts:Date.now(),snd:getSnd()},{merge:true}).catch(()=>{});});
    p.addListener("registrationError",()=>toast("Push registration failed"));
    p.addListener("pushNotificationReceived",()=>{alarm();});
    try{await p.createChannel({id:"orders",name:"New orders",description:"New order alerts",importance:5,visibility:1,vibration:true});}catch(e){}
@@ -136,18 +138,64 @@ async function initPush(){
   if(r.receive==="granted")await p.register();
  }catch(e){}
 }
+async function webPush(){
+ try{
+  if(!VAPID_KEY||/Electron/i.test(navigator.userAgent))return;
+  if(!("serviceWorker" in navigator)||!("Notification" in window)||!firebase.messaging.isSupported())return;
+  if(Notification.permission==="default")await Notification.requestPermission();
+  if(Notification.permission!=="granted")return;
+  const reg=await navigator.serviceWorker.register("firebase-messaging-sw.js");
+  await navigator.serviceWorker.ready;
+  const tk=await firebase.messaging().getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
+  if(tk){LS.s("ad_tok",tk);db.doc("adminTokens/"+tk).set({ts:Date.now(),web:true,snd:getSnd()},{merge:true}).catch(()=>{});}
+ }catch(e){}
+}
 async function keepAwake(){try{if("wakeLock" in navigator)wl=await navigator.wakeLock.request("screen");}catch(e){}}
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&authed){keepAwake();beat();chkBatt();}});
 setInterval(()=>{if(!authed)return;orders.some(o=>o.status==="New")?alarm():stopAlarm();},12000);setInterval(beat,30000);
 
+/* ---- notification sound picker ---- */
+const SND=[["order_alert","🚨 Default alarm"],["snd_bell","🔔 Classic bell"],["snd_chime","🎐 Soft chime"],["snd_doorbell","🚪 Doorbell"],["snd_digital","📟 Digital beeps"],["snd_siren","🚓 Siren"],["snd_phone","☎️ Old phone"],["snd_marimba","🎵 Marimba"],["snd_pulse","📡 Sonar pulse"],["snd_bubble","🫧 Bubble pops"],["snd_fanfare","🎺 Fanfare"]];
+const sndFile=id=>"sounds/"+id+".wav";
+const getSnd=()=>{const v=LS.g("ad_snd");return SND.some(x=>x[0]===v)?v:"order_alert";};
+let pvA=null,pvId=null;
+function pvStop(){try{if(pvA){pvA.pause();pvA.currentTime=0;}}catch(e){}pvId=null;}
+function pvPlay(id){
+ if(pvId===id){pvStop();markSnd();return;}
+ pvStop();
+ try{pvA=pvA||new Audio();pvA.onended=()=>{pvId=null;markSnd();};pvA.src=sndFile(id);pvA.currentTime=0;pvId=id;const p=pvA.play();if(p&&p.catch)p.catch(()=>{pvId=null;markSnd();});}catch(e){pvId=null;}
+ markSnd();
+}
+function markSnd(){
+ const cur=getSnd();
+ document.querySelectorAll("[data-s]").forEach(r=>{const id=r.dataset.s,on=id===cur;r.style.borderColor=on?"var(--brand)":"transparent";const c=r.querySelector(".sc");if(c)c.textContent=on?"✓":"";const p=r.querySelector(".sp");if(p)p.textContent=pvId===id?"■":"▶";});
+}
+async function applySnd(){
+ const id=getSnd(),k=KA();
+ if(k){try{await k.createChannel({sound:id});}catch(e){}}
+ const tk=LS.g("ad_tok");if(tk&&db)db.doc("adminTokens/"+tk).set({snd:id},{merge:true}).catch(()=>{});
+}
+function pickSnd(id){LS.s("ad_snd",id);markSnd();pvPlay(id);applySnd();}
+function closeSnd(){pvStop();const m=$("ms");m&&m.remove();}
+function showSnd(){
+ closeSnd();
+ const m=document.createElement("div");m.className="ov show";m.id="ms";
+ m.onclick=e=>{if(e.target===m)closeSnd();};
+ m.innerHTML=`<div class="sheet"><button class="x" onclick="closeSnd()" aria-label="Close">×</button><h2>🔔 Notification sound</h2><p class="note">Tap ▶ to listen. Tap a row to use that sound for new orders.</p>`+
+  SND.map(([id,n])=>`<div data-s="${id}" onclick="pickSnd('${id}')" style="display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:14px;margin:6px 0;background:var(--card);border:2px solid transparent;cursor:pointer"><button class="ghost sp" style="flex:none;width:44px;height:44px;padding:0" onclick="event.stopPropagation();pvPlay('${id}')" aria-label="Play">▶</button><span style="flex:1;font-weight:600">${n}</span><b class="sc" style="color:var(--brand);font-size:20px;min-width:22px;text-align:center"></b></div>`).join("")+
+  `<button class="ghost" style="width:100%;margin-top:10px" onclick="closeSnd()">Close</button></div>`;
+ document.body.appendChild(m);markSnd();
+}
 /* ---- keep-alive, alarm, reminders, share ---- */
 const KA=()=>window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.KeepAlive;
 let batt=true;
-function alarm(){const k=KA();if(k)k.ring().catch(beep);else beep();}
-function stopAlarm(){const k=KA();if(k)k.stopRing().catch(()=>{});}
+let sndEl=null;
+function webRing(){try{const f=sndFile(getSnd());if(!sndEl||sndEl._f!==f){if(sndEl){try{sndEl.pause();}catch(e){}}sndEl=new Audio(f);sndEl._f=f;}if(!sndEl.paused)return;sndEl.currentTime=0;const pr=sndEl.play();if(pr&&pr.catch)pr.catch(beep);}catch(e){beep();}}
+function alarm(){const k=KA();if(k)k.ring({sound:getSnd()}).catch(beep);else webRing();}
+function stopAlarm(){const k=KA();if(k)k.stopRing().catch(()=>{});else try{if(sndEl){sndEl.pause();sndEl.currentTime=0;}}catch(e){}}
 function beat(){if(authed&&pres.open)db.doc("config/presence").set({hb:Date.now()},{merge:true}).catch(()=>{});}
 async function chkBatt(){const k=KA();if(!k||!authed)return;try{const r=await k.batteryStatus();if(r.ignoring!==batt){batt=r.ignoring;if(atab==="orders")draw();}}catch(e){}}
-async function initKA(){const k=KA();if(!k)return;try{await k.createChannel();await k.start();await chkBatt();if(!batt&&!LS.g("ad_bq")){LS.s("ad_bq",1);k.requestBattery();}}catch(e){}}
+async function initKA(){const k=KA();if(!k)return;try{await k.createChannel({sound:getSnd()});await k.start();await chkBatt();if(!batt&&!LS.g("ad_bq")){LS.s("ad_bq",1);k.requestBattery();}}catch(e){}}
 function battH(){return KA()&&!batt?`<div class="tbox" style="border:2px solid #dc2626"><b>⚠ Battery optimization is ON</b><div class="note">Android may close this app and you will miss orders.</div><button class="pri" style="margin-top:8px" onclick="KA().requestBattery()">Disable it now</button></div>`:"";}
 async function schedRemind(){
  const p=LNP();if(!p)return;
@@ -237,36 +285,7 @@ function showPop(id){
  document.body.appendChild(m);
  if(has){setTimeout(()=>drawMap(o,k),60);roadDist(o);}
 }
-const YKEY="e5d819ff-95cd-41c7-a092-2175d2def426";let ymP=null;
-function loadYandex(){
- if(window.ymaps&&ymaps.Map)return Promise.resolve();
- if(ymP)return ymP;
- const j=document.createElement("script");
- ymP=new Promise((ok,no)=>{
-  const to=setTimeout(no,15000);
-  j.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(YKEY)+"&lang=en_US";
-  j.onload=()=>{if(!window.ymaps){no();return;}ymaps.ready(()=>{clearTimeout(to);ymaps.Map?ok():no();});};
-  j.onerror=no;document.head.appendChild(j);
- }).catch(e=>{j.remove();ymP=null;throw e;});
- return ymP;
-}
-const ymIco=e=>"data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><text x="20" y="32" font-size="30" text-anchor="middle">'+e+'</text></svg>');
 function drawMap(o,k){
- const el=$("pmap");if(!el)return;
- const tok=el.dataset.tok=String(Date.now())+Math.random();
- loadYandex().then(()=>{
-  const el2=$("pmap");if(!el2||!$("pop")||el2!==el||el2.dataset.tok!==tok)return;
-  const c=[+o.pin.lat,+o.pin.lon],s=[shop.lat,shop.lon];
-  const m=new ymaps.Map(el2,{center:c,zoom:15,controls:["zoomControl"]},{suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true});
-  m.geoObjects.add(new ymaps.Polyline([s,c],{},{strokeColor:"#f2b90f",strokeWidth:4,strokeStyle:"dash"}));
-  const pm=(p,e)=>new ymaps.Placemark(p,{},{iconLayout:"default#image",iconImageHref:ymIco(e),iconImageSize:[40,40],iconImageOffset:[-20,-36]});
-  m.geoObjects.add(pm(s,"🏠"));m.geoObjects.add(pm(c,"📍"));
-  const fit=()=>{try{m.container.fitToViewport();m.setBounds([[Math.min(s[0],c[0]),Math.min(s[1],c[1])],[Math.max(s[0],c[0]),Math.max(s[1],c[1])]],{checkZoomRange:true,zoomMargin:40}).then(()=>{if(m.getZoom()>16)m.setZoom(16);});}catch(e){}};
-  fit();setTimeout(fit,250);
-  pmap={remove:()=>{try{m.destroy();}catch(e){}}};
- }).catch(()=>drawMapLeaflet(o,k));
-}
-function drawMapLeaflet(o,k){
  const el=$("pmap");if(!el)return;
  if(!window.L){el.innerHTML='<div class="note" style="padding:16px">Map needs internet. Distance: '+k.toFixed(1)+' km</div>';return;}
  try{
@@ -391,7 +410,7 @@ function draw(){
  document.querySelectorAll("[data-k]").forEach(e=>{form[e.dataset.k]=e.value;});
  const y=window.scrollY,tabs=[["orders","Orders"],["hist","Past orders"],["menu","Menu"],["hours","Hours"],["news","Updates"]];
  const nNew=orders.filter(o=>o.status==="New").length;
- $("app").innerHTML=`<div class="adm" style="min-height:100vh"><div class="top" style="overflow-x:auto;position:sticky;top:0;z-index:5"><b style="flex:none">🛠 Skhtor</b><button class="ib" style="flex:none;background:${pres.open?"#16a34a":"#dc2626"}" onclick="setOpen()">${pres.open?"● Online":"○ Offline"}</button>${tabs.map(([k,l])=>`<button class="ib" style="flex:none;${atab===k?"background:var(--brand);color:var(--on)":""}" onclick="tabGo('${k}')">${l}${k==="orders"&&nNew?" ("+nNew+")":""}</button>`).join("")}<button class="ib" style="flex:none" onclick="askShop()" aria-label="Edit location and GPS" title="Location &amp; GPS">📍</button><button class="ib" style="flex:none" onclick="askOut()" aria-label="Sign out">⎋</button></div><div class="body">${atab==="orders"?ordersH(0):atab==="hist"?ordersH(1):atab==="menu"?menuH():atab==="hours"?hoursH():newsH()}</div></div>`;
+ $("app").innerHTML=`<div class="adm" style="min-height:100vh"><div class="top" style="overflow-x:auto;position:sticky;top:0;z-index:5"><b style="flex:none">🛠 Skhtor</b><button class="ib" style="flex:none;background:${pres.open?"#16a34a":"#dc2626"}" onclick="setOpen()">${pres.open?"● Online":"○ Offline"}</button>${tabs.map(([k,l])=>`<button class="ib" style="flex:none;${atab===k?"background:var(--brand);color:var(--on)":""}" onclick="tabGo('${k}')">${l}${k==="orders"&&nNew?" ("+nNew+")":""}</button>`).join("")}<button class="ib" style="flex:none" onclick="askShop()" aria-label="Edit location and GPS" title="Location &amp; GPS">📍</button><button class="ib" style="flex:none" onclick="showSnd()" aria-label="Notification sound" title="Notification sound">🔔</button><button class="ib" style="flex:none" onclick="askOut()" aria-label="Sign out">⎋</button></div><div class="body">${atab==="orders"?ordersH(0):atab==="hist"?ordersH(1):atab==="menu"?menuH():atab==="hours"?hoursH():newsH()}</div></div>`;
  document.querySelectorAll("[data-k]").forEach(e=>{if(form[e.dataset.k]!==undefined)e.value=form[e.dataset.k];});
  if(atab==="orders"||atab==="hist"){window.scrollTo(0,y);fillRoad();}
 }

@@ -285,7 +285,45 @@ function showPop(id){
  document.body.appendChild(m);
  if(has){setTimeout(()=>drawMap(o,k),60);roadDist(o);}
 }
+const YKEY="e5d819ff-95cd-41c7-a092-2175d2def426";let ymP=null;
+function loadYandex(){
+ if(window.ymaps&&ymaps.Map)return Promise.resolve();
+ if(ymP)return ymP;
+ const j=document.createElement("script");
+ ymP=new Promise((ok,no)=>{
+  const to=setTimeout(no,15000);
+  j.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(YKEY)+"&lang=en_US";
+  j.onload=()=>{if(!window.ymaps){no();return;}ymaps.ready(()=>{clearTimeout(to);ymaps.Map?ok():no();});};
+  j.onerror=no;document.head.appendChild(j);
+ }).catch(e=>{j.remove();ymP=null;throw e;});
+ return ymP;
+}
+const ymIco=e=>"data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><text x="20" y="32" font-size="30" text-anchor="middle">'+e+'</text></svg>');
 function drawMap(o,k){
+ const el=$("pmap");if(!el)return;
+ const tok=el.dataset.tok=String(Date.now())+Math.random();
+ loadYandex().then(()=>{
+  const el2=$("pmap");if(!el2||!$("pop")||el2!==el||el2.dataset.tok!==tok)return;
+  const c=[+o.pin.lat,+o.pin.lon],s=[shop.lat,shop.lon];
+  const m=new ymaps.Map(el2,{center:c,zoom:15,controls:["zoomControl"]},{suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true});
+  m.geoObjects.add(new ymaps.Polyline([s,c],{},{strokeColor:"#f2b90f",strokeWidth:4,strokeStyle:"dash"}));
+  const pm=(p,e)=>new ymaps.Placemark(p,{},{iconLayout:"default#image",iconImageHref:ymIco(e),iconImageSize:[40,40],iconImageOffset:[-20,-36]});
+  m.geoObjects.add(pm(s,"🏠"));m.geoObjects.add(pm(c,"📍"));
+  const fit=()=>{try{m.container.fitToViewport();m.setBounds([[Math.min(s[0],c[0]),Math.min(s[1],c[1])],[Math.max(s[0],c[0]),Math.max(s[1],c[1])]],{checkZoomRange:true,zoomMargin:40}).then(()=>{if(m.getZoom()>16)m.setZoom(16);});}catch(e){}};
+  fit();[250,600,1200].forEach(d=>setTimeout(fit,d));
+  try{m.container.events.add("sizechange",fit);}catch(e){}
+  pmap={remove:()=>{try{m.destroy();}catch(e){}}};
+ }).catch(err=>{
+  const why=(err&&err.message)?err.message:(err?String(err):"could not load Yandex Maps");
+  try{if(pmap){pmap.remove();pmap=null;}}catch(e){}
+  const el3=$("pmap");if(!el3||el3!==el)return;
+  el3.innerHTML="";el3.className="";
+  drawMapLeaflet(o,k);
+  const n=document.createElement("div");n.className="note";n.style.cssText="margin:-4px 0 8px";n.textContent="⚠️ Yandex map unavailable ("+why+") — showing OpenStreetMap";
+  if(el3.parentNode)el3.parentNode.insertBefore(n,el3.nextSibling);
+ });
+}
+function drawMapLeaflet(o,k){
  const el=$("pmap");if(!el)return;
  if(!window.L){el.innerHTML='<div class="note" style="padding:16px">Map needs internet. Distance: '+k.toFixed(1)+' km</div>';return;}
  try{
